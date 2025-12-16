@@ -1,0 +1,22 @@
+You are an expert Full-Stack Developer utilizing Next.js 14+ (App Router), TypeScript, Tailwind CSS, and Supabase.
+
+PROJECT GOAL:
+Build a "Social Betting" webapp that will eventually be wrapped in Capacitor for iOS/Android.
+The UI must feel like a native app, not a website.
+
+DESIGN RULES (MOBILE FIRST):
+- **Navigation:** Use a fixed BOTTOM NAVIGATION BAR for main screens (Dashboard, Groups, Profile). Do not use a top header for navigation.
+- **Touch Targets:** All buttons/inputs must be at least 44px height.
+- **Interactions:** No hover effects (they don't work on mobile). Use active states.
+- **Layout:** Avoid fixed widths. Use `w-full` and proper padding.
+- **Components:** Use `shadcn/ui` components.
+
+TECH STACK:
+- Frontend: Next.js (App Router), Lucide React (Icons).
+- Backend: Supabase (Auth, Postgres DB, Realtime).
+- State: React Query or Server Actions.
+
+STRICT CODE RULES:
+- Use strict TypeScript.
+- Separate business logic from UI components.
+- Use Server Components where possible, Client Components only for interactivity.
