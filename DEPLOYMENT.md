@@ -150,3 +150,4 @@ git push
 - Stelle sicher, dass `MASTER_SETUP.sql` in Supabase ausgeführt wurde
 - Prüfe ob RLS Policies korrekt gesetzt sind
 
+

@@ -73,3 +73,4 @@ Falls du später automatische Deployments willst (jeder `git push` deployed auto
 
 Aber für jetzt: **Option 1 ist viel einfacher!**
 
+

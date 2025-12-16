@@ -88,3 +88,4 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 Diese Werte findest du in deinem Supabase Dashboard → Settings → API.
 
+

@@ -93,3 +93,4 @@ https://betfriends.vercel.app/auth/callback
 
 Fertig! 🎉
 
+

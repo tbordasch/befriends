@@ -7,3 +7,4 @@ ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP WITH TIME ZONE;
 -- Create index for faster queries
 CREATE INDEX IF NOT EXISTS idx_votes_confirmed_at ON public.votes(bet_id, confirmed_at);
 
+
