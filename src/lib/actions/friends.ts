@@ -134,6 +134,11 @@ export async function removeFriend(
     .eq("friend_id", friendId)
     .select();
 
+  // Check for error from first query
+  if (error1) {
+    return { success: false, error: error1.message };
+  }
+
   // If nothing was deleted, try the reverse direction (where userId is friend_id)
   if (!deleted1 || deleted1.length === 0) {
     const { error: error2 } = await supabase
@@ -145,8 +150,6 @@ export async function removeFriend(
     if (error2) {
       return { success: false, error: error2.message };
     }
-  } else if (error1) {
-    return { success: false, error: error1.message };
   }
 
   return { success: true };
