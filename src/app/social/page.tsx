@@ -8,8 +8,9 @@ import { FriendsList } from "@/components/friends/FriendsList";
 import { SearchUsers } from "@/components/friends/SearchUsers";
 import { FriendRequests } from "@/components/friends/FriendRequests";
 import { InvitationsList } from "@/components/invitations/InvitationsList";
+import { JoinRequestsList } from "@/components/social/JoinRequestsList";
 
-export default async function FriendsPage() {
+export default async function SocialPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -22,9 +23,9 @@ export default async function FriendsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Friends</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Social</h1>
         <p className="text-muted-foreground mt-1">
-          Find and manage your friends
+          Find and manage your friends, and view join requests
         </p>
       </div>
 
@@ -41,6 +42,22 @@ export default async function FriendsPage() {
         </CardHeader>
         <CardContent>
           <SearchUsers currentUserId={user.id} />
+        </CardContent>
+      </Card>
+
+      {/* Join Requests (for bets you created) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            Join Requests
+          </CardTitle>
+          <CardDescription>
+            People requesting to join your public bets
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <JoinRequestsList creatorId={user.id} />
         </CardContent>
       </Card>
 

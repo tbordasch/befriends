@@ -4,15 +4,20 @@ import { useState, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { useRouter, useSearchParams } from "next/navigation";
 import { joinBet } from "@/lib/actions/bets";
+import { requestToJoinBet } from "@/lib/actions/betJoinRequests";
 
 function JoinBetButtonContent({
   betId,
   userId,
   inviteCode,
+  isPrivate,
+  hasPendingRequest,
 }: {
   betId: string;
   userId: string;
   inviteCode?: string;
+  isPrivate?: boolean;
+  hasPendingRequest?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -26,7 +31,18 @@ function JoinBetButtonContent({
     setLoading(true);
     setError("");
 
-    const result = await joinBet(betId, userId, inviteCodeFromUrl || undefined);
+    // For private bets with invite code: use direct join
+    // For public bets: use request system (creator must accept)
+    let result;
+    if (isPrivate && inviteCodeFromUrl) {
+      result = await joinBet(betId, userId, inviteCodeFromUrl);
+    } else if (!isPrivate) {
+      result = await requestToJoinBet(betId, userId);
+    } else {
+      setError("This bet requires an invite code to join");
+      setLoading(false);
+      return;
+    }
 
     if (!result.success) {
       setError(result.error || "Failed to join bet");
@@ -50,10 +66,14 @@ function JoinBetButtonContent({
       )}
       <Button
         onClick={handleJoin}
-        disabled={loading}
+        disabled={loading || hasPendingRequest}
         className="w-full min-h-[44px]"
       >
-        {loading ? "Joining..." : "Join Bet"}
+        {loading 
+          ? (isPrivate && inviteCodeFromUrl ? "Joining..." : "Requesting...") 
+          : hasPendingRequest
+          ? "Requested"
+          : (isPrivate && inviteCodeFromUrl ? "Join Bet" : "Request to Join")}
       </Button>
     </div>
   );
@@ -63,10 +83,14 @@ export function JoinBetButton({
   betId,
   userId,
   inviteCode,
+  isPrivate,
+  hasPendingRequest,
 }: {
   betId: string;
   userId: string;
   inviteCode?: string;
+  isPrivate?: boolean;
+  hasPendingRequest?: boolean;
 }) {
   return (
     <Suspense fallback={
@@ -74,7 +98,7 @@ export function JoinBetButton({
         Loading...
       </Button>
     }>
-      <JoinBetButtonContent betId={betId} userId={userId} inviteCode={inviteCode} />
+      <JoinBetButtonContent betId={betId} userId={userId} inviteCode={inviteCode} isPrivate={isPrivate} hasPendingRequest={hasPendingRequest} />
     </Suspense>
   );
 }

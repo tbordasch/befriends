@@ -86,6 +86,9 @@ export default async function BetDetailPage({
     (p: any) => p.user_id === user.id
   );
   const isParticipant = !!currentParticipant;
+  const hasPendingRequest = bet.participants?.some(
+    (p: any) => p.user_id === user.id && p.status === "pending"
+  ) || false;
   const acceptedParticipants = bet.participants?.filter(
     (p: any) => p.status === "accepted"
   ) || [];
@@ -309,7 +312,13 @@ export default async function BetDetailPage({
 
           {!isParticipant && !isCreator && bet.status === "open" && (
             <div className="pt-4 border-t">
-              <JoinBetButton betId={bet.id} userId={user.id} inviteCode={invite || undefined} />
+              <JoinBetButton 
+                betId={bet.id} 
+                userId={user.id} 
+                inviteCode={invite || undefined}
+                isPrivate={bet.is_private}
+                hasPendingRequest={hasPendingRequest}
+              />
             </div>
           )}
         </CardContent>

@@ -170,3 +170,39 @@ export async function refundPoints(
   return { success: true };
 }
 
+/**
+ * Get locked points for any user (for friend profiles - bypasses RLS)
+ */
+export async function getUserLockedPointsForFriend(userId: string): Promise<number> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.rpc("get_user_locked_points", {
+    p_user_id: userId,
+  });
+
+  if (error) {
+    console.error("Error getting friend locked points:", error);
+    return 0;
+  }
+
+  return data || 0;
+}
+
+/**
+ * Get potential win for any user (for friend profiles - bypasses RLS)
+ */
+export async function getUserPotentialWinForFriend(userId: string): Promise<number> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.rpc("get_user_potential_win", {
+    p_user_id: userId,
+  });
+
+  if (error) {
+    console.error("Error getting friend potential win:", error);
+    return 0;
+  }
+
+  return data || 0;
+}
+

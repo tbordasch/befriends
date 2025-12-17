@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Plus, User, Users } from "lucide-react";
+import { Home, Plus, User, Users, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "./UserMenu";
 import { useEffect, useState } from "react";
@@ -23,8 +23,13 @@ const navigationItems = [
     icon: Plus,
   },
   {
-    name: "Friends",
-    href: "/friends",
+    name: "Browse",
+    href: "/browse",
+    icon: Search,
+  },
+  {
+    name: "Social",
+    href: "/social",
     icon: Users,
   },
   {

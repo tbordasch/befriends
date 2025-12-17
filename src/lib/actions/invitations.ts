@@ -39,6 +39,7 @@ export async function getPendingInvitations(userId: string) {
       deadline,
       status,
       creator_id,
+      is_private,
       creator:profiles!bets_creator_id_fkey(
         id,
         name,
@@ -53,10 +54,28 @@ export async function getPendingInvitations(userId: string) {
   }
 
   // Combine participants with their bets
+  // Only include invitations where user was INVITED by creator (not where user requested to join)
+  // Exclude:
+  // 1. Bets where user is the creator (those are join requests FROM others, not invitations TO the user)
+  // 2. Public bets where user is NOT the creator (user requested to join, not invited)
+  // Only include:
+  // - Private bets where user is NOT the creator (user was invited via invite code/friend invite)
   const invitations = participants
     .map((participant) => {
       const bet = bets?.find((b) => b.id === participant.bet_id);
       if (!bet) return null;
+      
+      // Exclude if user is the creator (this is a join request from someone else, not an invitation to the user)
+      if (bet.creator_id === userId) {
+        return null;
+      }
+      
+      // Exclude public bets (if user is not creator of a public bet, they requested to join, weren't invited)
+      if (!bet.is_private) {
+        return null; // Public bet = user requested to join, not an invitation
+      }
+      
+      // Only include private bets where user is not the creator (user was invited)
       return {
         ...participant,
         bet,
@@ -99,6 +118,7 @@ export async function getLatestPendingInvitation(userId: string) {
       deadline,
       status,
       creator_id,
+      is_private,
       creator:profiles!bets_creator_id_fkey(
         id,
         name,
@@ -110,6 +130,14 @@ export async function getLatestPendingInvitation(userId: string) {
     .single();
 
   if (betError || !bet) {
+    return { success: false, invitation: null };
+  }
+
+  // Only return invitation if:
+  // - User is NOT the creator (user was invited, not requesting)
+  // - Bet is private (public bets = user requested to join, not invited)
+  // If user is the creator or bet is public, this is a join request, not an invitation
+  if (bet.creator_id === userId || !bet.is_private) {
     return { success: false, invitation: null };
   }
 

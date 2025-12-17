@@ -95,8 +95,12 @@ CREATE TABLE public.votes (
   voter_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
   voted_for_user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
+  confirmed_at TIMESTAMP WITH TIME ZONE,
   UNIQUE(bet_id, voter_id)
 );
+
+-- Create index for faster vote confirmation queries
+CREATE INDEX IF NOT EXISTS idx_votes_confirmed_at ON public.votes(bet_id, confirmed_at);
 
 -- Friends table
 CREATE TABLE public.friends (

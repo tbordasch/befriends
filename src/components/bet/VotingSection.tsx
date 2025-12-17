@@ -6,6 +6,71 @@ import { Users, CheckCircle2, Coins } from "lucide-react";
 import { toggleVote, getVotes, confirmVote } from "@/lib/actions/votes";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
+
+// Component to poll bet status and reload when completed
+function ProcessingResults({ betId, onComplete }: { betId: string; onComplete: () => void }) {
+  useEffect(() => {
+    const supabase = createClient();
+    let pollCount = 0;
+    const maxPolls = 20; // Max 20 polls (20 seconds)
+    
+    console.log("[ProcessingResults] Starting to poll bet status for betId:", betId);
+    
+    const pollInterval = setInterval(async () => {
+      pollCount++;
+      console.log(`[ProcessingResults] Poll ${pollCount}/${maxPolls} - Checking bet status...`);
+      
+      // Use a fresh query each time to avoid caching issues
+      const { data: bet, error } = await supabase
+        .from("bets")
+        .select("status")
+        .eq("id", betId)
+        .single();
+      
+      if (error) {
+        console.error("[ProcessingResults] Error fetching bet status:", error);
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval);
+          console.log("[ProcessingResults] Max polls reached with error, forcing reload");
+          setTimeout(() => onComplete(), 1000);
+        }
+        return;
+      }
+      
+      if (bet) {
+        console.log(`[ProcessingResults] Bet status: ${bet.status}`);
+        
+        if (bet.status === "completed") {
+          console.log("[ProcessingResults] Bet is completed! Reloading page...");
+          clearInterval(pollInterval);
+          // Wait a bit more to ensure all DB operations are complete (points distribution, etc.)
+          setTimeout(() => {
+            console.log("[ProcessingResults] Executing reload now");
+            onComplete();
+          }, 1500);
+          return;
+        }
+      }
+      
+      if (pollCount >= maxPolls) {
+        clearInterval(pollInterval);
+        console.log("[ProcessingResults] Max polls reached, forcing reload");
+        // Force reload after max polls even if status not changed
+        setTimeout(() => {
+          onComplete();
+        }, 1000);
+      }
+    }, 800); // Poll every 800ms (faster polling)
+    
+    return () => {
+      console.log("[ProcessingResults] Cleaning up poll interval");
+      clearInterval(pollInterval);
+    };
+  }, [betId, onComplete]);
+  
+  return null;
+}
 
 interface VotingSectionProps {
   betId: string;
@@ -50,8 +115,10 @@ export function VotingSection({
       const myVote = votesResult.votes?.find(
         (v: any) => v.voter_id === userId
       );
+      const isConfirmed = myVote?.confirmed_at !== null && myVote?.confirmed_at !== undefined;
+      console.log("[VotingSection] loadVotes - myVote:", myVote, "isConfirmed:", isConfirmed);
       setUserVote(myVote?.voted_for_user_id || null);
-      setUserVoteConfirmed(myVote?.confirmed_at !== null && myVote?.confirmed_at !== undefined);
+      setUserVoteConfirmed(isConfirmed);
     }
     setLoading(false);
   };
@@ -110,17 +177,8 @@ export function VotingSection({
   const allConfirmed = votes.every((v: any) => v.confirmed_at !== null && v.confirmed_at !== undefined);
   const isCompleted = betStatus === "completed";
 
-  // Check if bet should be completed when all votes are confirmed
-  useEffect(() => {
-    if (allVoted && allConfirmed && !isCompleted && votes.length > 0) {
-      // Trigger a refresh to check bet status after a short delay
-      // This ensures the server-side checkAndUpdateBetStatus has time to process
-      const timer = setTimeout(() => {
-        router.refresh();
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [allVoted, allConfirmed, isCompleted, votes.length, router]);
+  // Note: Bet completion is now handled by the OK button click handler above
+  // This useEffect was causing infinite reload loops, so it's been disabled
 
   // Find winner if bet is completed
   let winnerUserId: string | null = null;
@@ -195,7 +253,13 @@ export function VotingSection({
           <p className="text-blue-700 dark:text-blue-300 mt-1">
             Processing results...
           </p>
+          <ProcessingResults betId={betId} onComplete={() => window.location.reload()} />
         </div>
+      )}
+
+      {/* Also poll if user has confirmed their vote and all have voted, but not all confirmed yet */}
+      {allVoted && !allConfirmed && userVoteConfirmed && !isCompleted && (
+        <ProcessingResults betId={betId} onComplete={() => window.location.reload()} />
       )}
 
       {!allVoted && !isCompleted && totalVotes > 0 && (
@@ -292,33 +356,60 @@ export function VotingSection({
         <div className="flex justify-center pt-4">
           <button
             onClick={async () => {
-              if (confirming) return;
+              if (confirming || userVoteConfirmed) {
+                console.log("[VotingSection] Confirm button clicked but already confirming or confirmed", { confirming, userVoteConfirmed });
+                return;
+              }
+              
+              console.log("[VotingSection] Starting vote confirmation...");
               setConfirming(true);
               setError("");
+              
               try {
+                console.log("[VotingSection] Calling confirmVote...");
                 const result = await confirmVote(betId, userId);
+                console.log("[VotingSection] confirmVote result:", result);
+                
                 if (!result.success) {
+                  console.error("[VotingSection] confirmVote failed:", result.error);
                   setError(result.error || "Failed to confirm vote");
                   setConfirming(false);
                   return;
                 }
-                setUserVoteConfirmed(true);
+                
+                // Reload votes first to get the latest state (including confirmed_at)
+                console.log("[VotingSection] Reloading votes after confirmation...");
                 await loadVotes();
-                // Small delay to ensure database is updated before refresh
-                setTimeout(() => {
-                  router.refresh();
-                }, 500);
+                
+                // Set confirming to false after loadVotes completes
+                setConfirming(false);
+                
+                console.log("[VotingSection] Vote confirmed successfully");
+                
+                // Note: The ProcessingResults component will handle reloading when bet is completed
               } catch (err: any) {
-                console.error("Error confirming vote:", err);
+                console.error("[VotingSection] Error confirming vote:", err);
                 setError(err.message || "An unexpected error occurred");
-              } finally {
                 setConfirming(false);
               }
             }}
-            disabled={confirming}
-            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium min-h-[44px] hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            disabled={confirming || userVoteConfirmed}
+            className={cn(
+              "px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium min-h-[44px] flex items-center gap-2 transition-all",
+              (confirming || userVoteConfirmed) && "opacity-50 cursor-not-allowed",
+              !confirming && !userVoteConfirmed && "hover:bg-primary/90 active:scale-[0.98]"
+            )}
           >
-            {confirming ? "Confirming..." : "OK - Confirm Vote"}
+            {confirming ? (
+              <>
+                <span className="animate-spin">⏳</span>
+                Confirming...
+              </>
+            ) : userVoteConfirmed ? (
+              "Vote Confirmed"
+            ) : (
+              "OK - Confirm Vote"
+            )}
           </button>
         </div>
       )}

@@ -1,9 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User as UserIcon, Mail } from "lucide-react";
+import { User as UserIcon, Mail, Trophy, TrendingUp, TrendingDown } from "lucide-react";
 import { PointsDisplay } from "@/components/points/PointsDisplay";
 import { getLockedPoints, getPotentialWin } from "@/lib/actions/points";
+import { getUserBettingStats } from "@/lib/actions/stats";
+import { getUserAchievements } from "@/lib/actions/achievements";
+import { AchievementBadge } from "@/components/profile/AchievementBadge";
 
 async function getUserProfile(userId: string) {
   const supabase = await createClient();
@@ -80,10 +83,13 @@ export default async function ProfilePage() {
   }
 
   const userName = profile.name || "User";
+  const username = profile.username || null;
   const userEmail = profile.email || user.email || "No email";
   const availablePoints = profile.current_points || 0;
   const lockedPoints = await getLockedPoints(user.id);
   const potentialWin = await getPotentialWin(user.id);
+  const stats = await getUserBettingStats(user.id);
+  const achievements = await getUserAchievements(user.id);
 
   return (
     <div className="space-y-6">
@@ -107,7 +113,10 @@ export default async function ProfilePage() {
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-semibold">{userName}</h3>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {username && (
+                <p className="text-sm font-medium text-primary">@{username}</p>
+              )}
+              <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                 <Mail className="h-4 w-4" />
                 <span>{userEmail}</span>
               </div>
@@ -123,6 +132,81 @@ export default async function ProfilePage() {
         </CardContent>
       </Card>
 
+      {/* Win/Loss Statistics */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Trophy className="h-5 w-5 text-primary" />
+            Betting Statistics
+          </CardTitle>
+          <CardDescription>Your win/loss record and performance</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 text-green-600 dark:text-green-400">
+                <TrendingUp className="h-5 w-5" />
+                <p className="text-3xl font-bold">{stats.wins}</p>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">Wins</p>
+            </div>
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 text-red-600 dark:text-red-400">
+                <TrendingDown className="h-5 w-5" />
+                <p className="text-3xl font-bold">{stats.losses}</p>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">Losses</p>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-bold">{stats.ties}</p>
+              <p className="text-sm text-muted-foreground mt-1">Ties</p>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-bold">{stats.winRate}%</p>
+              <p className="text-sm text-muted-foreground mt-1">Win Rate</p>
+            </div>
+          </div>
+          
+          {stats.totalBets > 0 && (
+            <div className="grid gap-4 md:grid-cols-3 mt-6 pt-6 border-t">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Points Won</p>
+                <p className="text-xl font-bold text-green-600 dark:text-green-400">
+                  {stats.totalPointsWon.toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Points Lost</p>
+                <p className="text-xl font-bold text-red-600 dark:text-red-400">
+                  {stats.totalPointsLost.toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Biggest Win</p>
+                <p className="text-xl font-bold">
+                  {stats.biggestWin.toLocaleString()} pts
+                </p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Achievements */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Achievements</CardTitle>
+          <CardDescription>Unlock badges by completing challenges</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {achievements.map((achievement) => (
+              <AchievementBadge key={achievement.id} achievement={achievement} />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Betting Statistics */}
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -132,13 +216,9 @@ export default async function ProfilePage() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{bets.created.length}</p>
-            {bets.created.length > 0 && (
+            {stats.averageBetSize > 0 && (
               <p className="text-sm text-muted-foreground mt-2">
-                Total stake:{" "}
-                {bets.created
-                  .reduce((sum, bet) => sum + (bet.stake_amount || 0), 0)
-                  .toLocaleString()}{" "}
-                points
+                Avg. stake: {stats.averageBetSize.toLocaleString()} pts
               </p>
             )}
           </CardContent>
@@ -151,12 +231,9 @@ export default async function ProfilePage() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{bets.participated.length}</p>
-            {bets.participated.length > 0 && (
-              <p className="text-sm text-muted-foreground mt-2">
-                Active participation in {bets.participated.length} bet
-                {bets.participated.length !== 1 ? "s" : ""}
-              </p>
-            )}
+            <p className="text-sm text-muted-foreground mt-2">
+              Total bets: {stats.totalBets}
+            </p>
           </CardContent>
         </Card>
       </div>

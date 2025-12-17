@@ -5,6 +5,7 @@ import { getUserFriends, removeFriend } from "@/lib/actions/friends";
 import { Button } from "@/components/ui/button";
 import { UserMinus } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export function FriendsList({ userId }: { userId: string }) {
   const [friends, setFriends] = useState<any[]>([]);
@@ -65,16 +66,21 @@ export function FriendsList({ userId }: { userId: string }) {
           key={friend.id}
           className="flex items-center justify-between p-3 rounded-lg bg-accent"
         >
-          <div>
-            <p className="font-medium">{friend.name || "Unknown"}</p>
-            <p className="text-sm text-muted-foreground">@{friend.username}</p>
-          </div>
+          <Link
+            href={`/profile/${friend.id}`}
+            className="flex-1 cursor-pointer hover:opacity-80 transition-opacity"
+          >
+            <div>
+              <p className="font-medium">{friend.name || "Unknown"}</p>
+              <p className="text-sm text-muted-foreground">@{friend.username}</p>
+            </div>
+          </Link>
           <Button
             variant="outline"
             size="sm"
             onClick={() => handleRemoveFriend(friend.id)}
             disabled={loading}
-            className="min-h-[44px]"
+            className="min-h-[44px] ml-2"
           >
             <UserMinus className="h-4 w-4 mr-2" />
             Remove

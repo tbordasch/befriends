@@ -183,6 +183,7 @@ export async function confirmVote(
   }
 
   // Confirm the vote
+  console.log(`[confirmVote] Confirming vote for bet ${betId}, voter ${voterId}`);
   const { error: updateError } = await supabase
     .from("votes")
     .update({ confirmed_at: new Date().toISOString() })
@@ -190,14 +191,20 @@ export async function confirmVote(
     .eq("voter_id", voterId);
 
   if (updateError) {
+    console.error(`[confirmVote] Error updating vote: ${updateError.message}`);
     return { success: false, error: `Failed to confirm vote: ${updateError.message}` };
   }
 
-  // Wait a tiny bit to ensure the database update is committed
-  // Then check if bet should be completed now (all votes confirmed or deadline passed)
-  // We need to reload votes to get the latest confirmed_at status
-  await new Promise(resolve => setTimeout(resolve, 100));
+  console.log(`[confirmVote] Vote confirmed successfully, waiting before checking bet status...`);
+
+  // Wait longer to ensure the database update is fully committed
+  // This is critical when multiple users confirm at similar times
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Now check if bet should be completed (will retry internally if not all confirmed yet)
+  console.log(`[confirmVote] Now calling checkAndUpdateBetStatus for bet ${betId}`);
   await checkAndUpdateBetStatus(betId);
+  console.log(`[confirmVote] checkAndUpdateBetStatus completed for bet ${betId}`);
 
   return { success: true };
 }
@@ -390,14 +397,49 @@ async function checkAndUpdateBetStatus(betId: string) {
   }
 
   // Get all votes with confirmation status (reload to ensure we have latest data)
-  const { data: votes } = await supabase
-    .from("votes")
-    .select("voted_for_user_id, confirmed_at, voter_id")
-    .eq("bet_id", betId);
+  // Add a longer delay before fetching to ensure any recent updates are committed
+  // This is critical when multiple users confirm at similar times
+  await new Promise(resolve => setTimeout(resolve, 600));
+  
+  // Fetch votes multiple times if needed to ensure we have the latest data
+  let votes;
+  let votesError;
+  let retries = 0;
+  const maxRetries = 3;
+  
+  while (retries < maxRetries) {
+    const result = await supabase
+      .from("votes")
+      .select("voted_for_user_id, confirmed_at, voter_id")
+      .eq("bet_id", betId);
+    
+    votes = result.data;
+    votesError = result.error;
+    
+    if (!votesError && votes) {
+      break;
+    }
+    
+    retries++;
+    if (retries < maxRetries) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+  }
 
-  if (!votes || votes.length === 0) {
+  if (votesError) {
+    console.error("[checkAndUpdateBetStatus] Error fetching votes:", votesError);
     return;
   }
+
+  if (!votes || votes.length === 0) {
+    console.log("[checkAndUpdateBetStatus] No votes found for bet");
+    return;
+  }
+  
+  console.log(`[checkAndUpdateBetStatus] Found ${votes.length} votes, checking confirmation status...`);
+  votes.forEach((vote: any, index: number) => {
+    console.log(`[checkAndUpdateBetStatus] Vote ${index + 1}: voter_id=${vote.voter_id}, confirmed_at=${vote.confirmed_at}`);
+  });
 
   // Check if ALL participants have voted
   const allVoted = votes.length === totalParticipants;
@@ -412,13 +454,54 @@ async function checkAndUpdateBetStatus(betId: string) {
   const deadlinePassed = now >= deadline;
 
   // Check if ALL votes are confirmed (confirmed_at is not null and not undefined)
-  const allConfirmed = votes.every((vote: any) => {
+  let allConfirmed = votes.every((vote: any) => {
     return vote.confirmed_at !== null && vote.confirmed_at !== undefined;
   });
+  
+  const confirmedCount = votes.filter((vote: any) => vote.confirmed_at !== null && vote.confirmed_at !== undefined).length;
+  console.log(`[checkAndUpdateBetStatus] Confirmed votes: ${confirmedCount}/${votes.length}, All confirmed: ${allConfirmed}, Deadline passed: ${deadlinePassed}`);
 
-  // Only proceed if all votes are confirmed OR deadline has passed
+  // If not all confirmed yet and deadline hasn't passed, retry multiple times
+  // This handles the case where another user just confirmed their vote in parallel
   if (!allConfirmed && !deadlinePassed) {
-    return;
+    console.log("[checkAndUpdateBetStatus] Not all votes confirmed yet. Retrying to check if other user just confirmed...");
+    
+    // Retry logic: Wait and check again if all votes are now confirmed
+    // This handles race conditions where multiple users confirm at the same time
+    // Increased retries and delays to handle slow database commits
+    for (let retry = 0; retry < 8; retry++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Reload votes to check if all are now confirmed
+      const { data: retryVotes, error: retryError } = await supabase
+        .from("votes")
+        .select("voted_for_user_id, confirmed_at, voter_id")
+        .eq("bet_id", betId);
+      
+      if (!retryError && retryVotes && retryVotes.length === totalParticipants) {
+        allConfirmed = retryVotes.every((vote: any) => {
+          return vote.confirmed_at !== null && vote.confirmed_at !== undefined;
+        });
+        
+        const retryConfirmedCount = retryVotes.filter((vote: any) => vote.confirmed_at !== null && vote.confirmed_at !== undefined).length;
+        console.log(`[checkAndUpdateBetStatus] Retry ${retry + 1}/8: Confirmed votes: ${retryConfirmedCount}/${retryVotes.length}, All confirmed: ${allConfirmed}`);
+        
+        if (allConfirmed) {
+          console.log(`[checkAndUpdateBetStatus] All votes now confirmed on retry ${retry + 1}, proceeding with completion`);
+          // Update votes variable to use the retry result
+          votes = retryVotes;
+          break; // Exit retry loop and proceed with completion
+        }
+      } else {
+        console.log(`[checkAndUpdateBetStatus] Retry ${retry + 1}/8: Error or wrong vote count`, { retryError, retryVotesCount: retryVotes?.length, totalParticipants });
+      }
+    }
+    
+    // Final check after retries
+    if (!allConfirmed && !deadlinePassed) {
+      console.log("[checkAndUpdateBetStatus] Still not all votes confirmed after retries, returning early");
+      return;
+    }
   }
 
   // If deadline passed but not all confirmed, auto-confirm all unconfirmed votes
@@ -463,16 +546,23 @@ async function checkAndUpdateBetStatus(betId: string) {
   // Check if someone has 100% of votes (unanimous winner)
   const hasUnanimousWinner = winnerUserId && maxVotes === totalParticipants;
 
-  // Update bet status to completed
+  console.log(`[checkAndUpdateBetStatus] Setting bet ${betId} status to completed`);
+  
+  // Update bet status to completed FIRST
   const { error: updateError } = await supabase
     .from("bets")
     .update({ status: "completed" })
     .eq("id", betId);
 
   if (updateError) {
-    console.error("Failed to update bet status:", updateError);
+    console.error("[checkAndUpdateBetStatus] Failed to update bet status:", updateError);
     return;
   }
+
+  console.log(`[checkAndUpdateBetStatus] Bet status updated to completed successfully`);
+  
+  // Delay to ensure status update is committed to database
+  await new Promise(resolve => setTimeout(resolve, 500));
 
   // If we have a unanimous winner, distribute points to winner
   if (hasUnanimousWinner && winnerUserId) {
