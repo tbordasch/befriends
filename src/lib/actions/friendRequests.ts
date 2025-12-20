@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logActivity } from "./activities";
 
 /**
  * Send a friend request
@@ -131,6 +132,40 @@ export async function sendFriendRequest(
     return { success: false, error: error.message };
   }
 
+  // Get profiles for activity messages
+  const { data: requesterProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", requesterId)
+    .single();
+
+  const { data: receiverProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", receiverId)
+    .single();
+
+  const requesterName = requesterProfile?.name || requesterProfile?.username || "Someone";
+  const receiverName = receiverProfile?.name || receiverProfile?.username || "Someone";
+
+  // Log activity for receiver (you received a friend request)
+  await logActivity(
+    receiverId,
+    "friend_request_sent",
+    `${requesterName} sent you a friend request`,
+    undefined,
+    requesterId
+  );
+
+  // Log activity for requester (you sent a friend request)
+  await logActivity(
+    requesterId,
+    "friend_request_sent",
+    `You sent a friend request to ${receiverName}`,
+    undefined,
+    receiverId
+  );
+
   return { success: true };
 }
 
@@ -226,6 +261,63 @@ export async function acceptFriendRequest(
     return { success: false, error: friendError.message };
   }
 
+  // Get user profiles for activity messages
+  const { data: requesterProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", request.requester_id)
+    .single();
+
+  const { data: receiverProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", request.receiver_id)
+    .single();
+
+  const requesterName = requesterProfile?.name || requesterProfile?.username || "Someone";
+  const receiverName = receiverProfile?.name || receiverProfile?.username || "Someone";
+
+  // Log activities for both users
+  // For the receiver (who accepted the request): "You accepted X's friend request"
+  await logActivity(
+    request.receiver_id,
+    "friend_request_accepted",
+    `You accepted ${requesterName}'s friend request - you're now friends`,
+    undefined,
+    request.requester_id
+  );
+
+  // For the requester (who sent the request): "X accepted your friend request"
+  await logActivity(
+    request.requester_id,
+    "friend_request_accepted",
+    `${receiverName} accepted your friend request - you're now friends`,
+    undefined,
+    request.receiver_id
+  );
+
+  // Also log friend_added for both users
+  await logActivity(
+    request.receiver_id,
+    "friend_added",
+    `You're now friends with ${requesterName}`,
+    undefined,
+    request.requester_id
+  );
+
+  await logActivity(
+    request.requester_id,
+    "friend_added",
+    `You're now friends with ${receiverName}`,
+    undefined,
+    request.receiver_id
+  );
+
+  // Check for newly unlocked achievements (friend added could unlock Social Butterfly)
+  const { checkAndLogNewAchievements } = await import("./achievementActivities");
+  await checkAndLogNewAchievements(request.receiver_id);
+  await checkAndLogNewAchievements(request.requester_id);
+
   return { success: true };
 }
 
@@ -238,17 +330,62 @@ export async function declineFriendRequest(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
+  // Get request details first
+  const { data: request, error: fetchError } = await supabase
+    .from("friend_requests")
+    .select("requester_id, receiver_id")
+    .eq("id", requestId)
+    .eq("receiver_id", userId)
+    .eq("status", "pending")
+    .single();
+
+  if (fetchError || !request) {
+    return { success: false, error: "Friend request not found" };
+  }
+
   // Update request status to declined
   const { error } = await supabase
     .from("friend_requests")
     .update({ status: "declined" })
-    .eq("id", requestId)
-    .eq("receiver_id", userId)
-    .eq("status", "pending");
+    .eq("id", requestId);
 
   if (error) {
     return { success: false, error: error.message };
   }
+
+  // Get user profiles for activity messages
+  const { data: requesterProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", request.requester_id)
+    .single();
+
+  const { data: receiverProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", request.receiver_id)
+    .single();
+
+  const requesterName = requesterProfile?.name || requesterProfile?.username || "Someone";
+  const receiverName = receiverProfile?.name || receiverProfile?.username || "Someone";
+
+  // Log activity for receiver (you declined the request)
+  await logActivity(
+    userId, // receiver_id
+    "friend_request_declined",
+    `You declined ${requesterName}'s friend request`,
+    undefined,
+    request.requester_id
+  );
+
+  // Log activity for requester (your request was declined)
+  await logActivity(
+    request.requester_id,
+    "friend_request_declined",
+    `${receiverName} declined your friend request`,
+    undefined,
+    userId
+  );
 
   return { success: true };
 }

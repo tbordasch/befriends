@@ -58,6 +58,15 @@ export default function CreateBetPage() {
     return result;
   };
 
+  // Quick deadline presets
+  const setDeadlinePreset = (days: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    // Format as YYYY-MM-DD for date input
+    const formattedDate = date.toISOString().split('T')[0];
+    setDeadline(formattedDate);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -188,6 +197,15 @@ export default function CreateBetPage() {
       return;
     }
 
+    // Log activity for bet creation
+    const { logActivity } = await import("@/lib/actions/activities");
+    await logActivity(
+      user.id,
+      "bet_created",
+      `You created "${bet.title}"`,
+      bet.id
+    );
+
     // If friends_only, add selected friends as participants (pending status - they need to accept)
     if (privacy === "friends_only" && selectedUsers.length > 0) {
       const { inviteUsersToBet } = await import("@/lib/actions/betInvites");
@@ -290,6 +308,38 @@ export default function CreateBetPage() {
                   disabled={loading}
                   className="min-h-[44px]"
                 />
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDeadlinePreset(3)}
+                    disabled={loading}
+                    className="h-8 text-xs"
+                  >
+                    In 3 days
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDeadlinePreset(7)}
+                    disabled={loading}
+                    className="h-8 text-xs"
+                  >
+                    In 7 days
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDeadlinePreset(31)}
+                    disabled={loading}
+                    className="h-8 text-xs"
+                  >
+                    In 31 days
+                  </Button>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   When should this bet end?
                 </p>

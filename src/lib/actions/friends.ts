@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logActivity } from "./activities";
 
 /**
  * Search for users by username
@@ -151,6 +152,23 @@ export async function removeFriend(
       return { success: false, error: error2.message };
     }
   }
+
+  // Log activity for both users
+  await logActivity(
+    userId,
+    "friend_removed",
+    `You removed a friend`,
+    undefined,
+    friendId
+  );
+
+  await logActivity(
+    friendId,
+    "friend_removed",
+    `You were removed as a friend`,
+    undefined,
+    userId
+  );
 
   return { success: true };
 }

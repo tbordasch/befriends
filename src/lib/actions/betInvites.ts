@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logActivity } from "./activities";
 
 /**
  * Invite users to a bet (create pending participants)
@@ -53,6 +54,54 @@ export async function inviteUsersToBet(
 
   if (inviteError) {
     return { success: false, error: inviteError.message };
+  }
+
+  // Get bet title for activity messages
+  const { data: betData } = await supabase
+    .from("bets")
+    .select("title")
+    .eq("id", betId)
+    .single();
+
+  const betTitle = betData?.title || "a bet";
+
+  // Get creator profile for activity messages
+  const { data: creatorProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", creatorId)
+    .single();
+
+  const creatorName = creatorProfile?.name || creatorProfile?.username || "Someone";
+
+  // Log activities for invited users
+  for (const userId of newUserIds) {
+    // Get invited user profile for creator's activity message
+    const { data: invitedUserProfile } = await supabase
+      .from("profiles")
+      .select("name, username")
+      .eq("id", userId)
+      .single();
+
+    const invitedUserName = invitedUserProfile?.name || invitedUserProfile?.username || "Someone";
+
+    // Log for invited user
+    await logActivity(
+      userId,
+      "bet_invited",
+      `${creatorName} invited you to "${betTitle}"`,
+      betId,
+      creatorId
+    );
+
+    // Log for creator
+    await logActivity(
+      creatorId,
+      "bet_invited",
+      `You invited ${invitedUserName} to "${betTitle}"`,
+      betId,
+      userId
+    );
   }
 
   return { success: true, count: insertedParticipants?.length || 0 };

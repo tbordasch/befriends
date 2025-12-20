@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logActivity } from "./activities";
 
 /**
  * Request to join a public bet (creates pending participant)
@@ -64,6 +65,45 @@ export async function requestToJoinBet(
 
   if (insertError) {
     return { success: false, error: insertError.message };
+  }
+
+  // Get bet title and creator info for activity messages
+  const { data: betData } = await supabase
+    .from("bets")
+    .select("title, creator_id")
+    .eq("id", betId)
+    .single();
+
+  const betTitle = betData?.title || "a bet";
+  const creatorId = betData?.creator_id;
+
+  // Get requester profile info for activity messages
+  const { data: requesterProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", userId)
+    .single();
+
+  const requesterName = requesterProfile?.name || requesterProfile?.username || "Someone";
+
+  // Log activity for requester
+  await logActivity(
+    userId,
+    "join_request_sent",
+    `You requested to join "${betTitle}"`,
+    betId,
+    creatorId || undefined
+  );
+
+  // Log activity for creator (someone wants to join)
+  if (creatorId) {
+    await logActivity(
+      creatorId,
+      "join_request_sent",
+      `${requesterName} wants to join "${betTitle}"`,
+      betId,
+      userId
+    );
   }
 
   return { success: true };
@@ -200,6 +240,47 @@ export async function acceptJoinRequest(
     return { success: false, error: errorMsg };
   }
 
+  // Get bet title and user info for activity messages
+  const { data: betData } = await supabase
+    .from("bets")
+    .select("title")
+    .eq("id", participant.bet.id)
+    .single();
+
+  const { data: requesterProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", participant.user_id)
+    .single();
+
+  const { data: creatorProfile } = await supabase
+    .from("profiles")
+    .select("name, username")
+    .eq("id", creatorId)
+    .single();
+
+  const betTitle = betData?.title || "a bet";
+  const requesterName = requesterProfile?.name || requesterProfile?.username || "Someone";
+  const creatorName = creatorProfile?.name || creatorProfile?.username || "The creator";
+
+  // Log activity for requester (their request was accepted)
+  await logActivity(
+    participant.user_id,
+    "join_request_accepted",
+    `Your join request for "${betTitle}" was accepted`,
+    participant.bet.id,
+    creatorId
+  );
+
+  // Log activity for creator (they accepted the request)
+  await logActivity(
+    creatorId,
+    "join_request_accepted",
+    `You accepted ${requesterName}'s join request for "${betTitle}"`,
+    participant.bet.id,
+    participant.user_id
+  );
+
   return { success: true };
 }
 
@@ -256,6 +337,45 @@ export async function declineJoinRequest(
   if (!updateResult || updateResult.length === 0 || !updateResult[0].success) {
     const errorMsg = updateResult?.[0]?.error_message || "Failed to decline join request";
     return { success: false, error: errorMsg };
+  }
+
+  // Get bet and requester info for activity logging
+  const { data: requestData } = await supabase
+    .from("bet_participants")
+    .select(
+      `
+      user_id,
+      bet:bets!inner(
+        id,
+        title,
+        creator_id
+      )
+    `
+    )
+    .eq("id", requestId)
+    .single();
+
+  if (requestData?.bet && requestData?.user_id) {
+    const betTitle = (requestData.bet as any).title || "a bet";
+    const requesterId = requestData.user_id;
+
+    // Log for creator
+    await logActivity(
+      creatorId,
+      "join_request_declined",
+      `You declined a join request for "${betTitle}"`,
+      (requestData.bet as any).id,
+      requesterId
+    );
+
+    // Log for requester
+    await logActivity(
+      requesterId,
+      "join_request_declined",
+      `Your join request for "${betTitle}" was declined`,
+      (requestData.bet as any).id,
+      creatorId
+    );
   }
 
   return { success: true };

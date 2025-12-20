@@ -7,6 +7,8 @@ import { getLockedPoints, getPotentialWin } from "@/lib/actions/points";
 import { getUserBettingStats } from "@/lib/actions/stats";
 import { getUserAchievements } from "@/lib/actions/achievements";
 import { AchievementBadge } from "@/components/profile/AchievementBadge";
+import { markActivitiesAsViewed } from "@/lib/actions/activities";
+import { checkAndLogNewAchievements } from "@/lib/actions/achievementActivities";
 
 async function getUserProfile(userId: string) {
   const supabase = await createClient();
@@ -90,6 +92,12 @@ export default async function ProfilePage() {
   const potentialWin = await getPotentialWin(user.id);
   const stats = await getUserBettingStats(user.id);
   const achievements = await getUserAchievements(user.id);
+  
+  // Check for newly unlocked achievements and log them
+  await checkAndLogNewAchievements(user.id);
+  
+  // Mark achievements as viewed when user visits profile page
+  await markActivitiesAsViewed(user.id);
 
   return (
     <div className="space-y-6">

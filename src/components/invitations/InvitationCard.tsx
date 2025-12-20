@@ -52,19 +52,22 @@ export function InvitationCard({ invitation, userId, onAction }: InvitationCardP
 
   if (!bet) return null;
 
-  return (
-    <div className="space-y-4">
-        {bet.title && (
-          <p className="text-base font-medium">{bet.title}</p>
-        )}
-        {bet.description && (
-          <p className="text-sm text-muted-foreground">{bet.description}</p>
-        )}
+  const creatorName = creator?.name || creator?.username || "Unknown";
 
-        <div className="flex items-center gap-4 text-sm">
+  return (
+    <div className="space-y-4 p-1">
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-lg font-semibold mb-1">{bet.title}</h3>
+          {bet.description && (
+            <p className="text-sm text-muted-foreground">{bet.description}</p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 text-sm">
           <div className="flex items-center gap-2">
             <Coins className="h-4 w-4 text-primary" />
-            <span className="font-medium">{bet.stake_amount} pts</span>
+            <span className="font-medium">{bet.stake_amount.toLocaleString()} pts</span>
           </div>
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -72,29 +75,33 @@ export function InvitationCard({ invitation, userId, onAction }: InvitationCardP
               {new Date(bet.deadline).toLocaleDateString()}
             </span>
           </div>
+          <div className="text-muted-foreground">
+            by <span className="font-medium">{creatorName}</span>
+          </div>
         </div>
+      </div>
 
-        {error && (
-          <p className="text-sm text-destructive">{error}</p>
-        )}
+      {error && (
+        <p className="text-sm text-destructive">{error}</p>
+      )}
 
-        <div className="flex gap-2">
-          <Button
-            onClick={handleAccept}
-            disabled={loading}
-            className="flex-1 min-h-[44px]"
-          >
-            Accept
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleDecline}
-            disabled={loading}
-            className="flex-1 min-h-[44px]"
-          >
-            Decline
-          </Button>
-        </div>
+      <div className="flex gap-2 pt-2 border-t">
+        <Button
+          onClick={handleAccept}
+          disabled={loading}
+          className="flex-1 min-h-[44px]"
+        >
+          Accept Invitation
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleDecline}
+          disabled={loading}
+          className="flex-1 min-h-[44px]"
+        >
+          Decline
+        </Button>
+      </div>
     </div>
   );
 }

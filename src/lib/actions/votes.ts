@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logActivity } from "./activities";
 
 /**
  * Cast or update a vote for a bet
@@ -76,8 +77,9 @@ export async function castVote(
     }
   }
 
-  // Check if all participants voted and update bet status / distribute points
-  await checkAndUpdateBetStatus(betId);
+  // DON'T check bet status here - it's too slow and called on every vote
+  // We'll check it only when votes are confirmed (in confirmVote)
+  // This makes voting much faster and more responsive
 
   return { success: true };
 }
@@ -195,11 +197,11 @@ export async function confirmVote(
     return { success: false, error: `Failed to confirm vote: ${updateError.message}` };
   }
 
-  console.log(`[confirmVote] Vote confirmed successfully, waiting before checking bet status...`);
+  console.log(`[confirmVote] Vote confirmed successfully, checking bet status...`);
 
-  // Wait longer to ensure the database update is fully committed
-  // This is critical when multiple users confirm at similar times
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  // Small delay to ensure the database update is fully committed
+  // Reduced from 1000ms to 500ms for better responsiveness
+  await new Promise(resolve => setTimeout(resolve, 500));
   
   // Now check if bet should be completed (will retry internally if not all confirmed yet)
   console.log(`[confirmVote] Now calling checkAndUpdateBetStatus for bet ${betId}`);
@@ -397,9 +399,9 @@ async function checkAndUpdateBetStatus(betId: string) {
   }
 
   // Get all votes with confirmation status (reload to ensure we have latest data)
-  // Add a longer delay before fetching to ensure any recent updates are committed
-  // This is critical when multiple users confirm at similar times
-  await new Promise(resolve => setTimeout(resolve, 600));
+  // Small delay before fetching to ensure any recent updates are committed
+  // Reduced from 600ms to 300ms for better performance
+  await new Promise(resolve => setTimeout(resolve, 300));
   
   // Fetch votes multiple times if needed to ensure we have the latest data
   let votes;
@@ -468,9 +470,10 @@ async function checkAndUpdateBetStatus(betId: string) {
     
     // Retry logic: Wait and check again if all votes are now confirmed
     // This handles race conditions where multiple users confirm at the same time
-    // Increased retries and delays to handle slow database commits
-    for (let retry = 0; retry < 8; retry++) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+    // We keep retrying until all are confirmed or max retries reached
+    const maxRetries = 12; // Reduced from 15, but still enough
+    for (let retry = 0; retry < maxRetries; retry++) {
+      await new Promise(resolve => setTimeout(resolve, 400)); // Reduced from 600ms
       
       // Reload votes to check if all are now confirmed
       const { data: retryVotes, error: retryError } = await supabase
@@ -484,7 +487,7 @@ async function checkAndUpdateBetStatus(betId: string) {
         });
         
         const retryConfirmedCount = retryVotes.filter((vote: any) => vote.confirmed_at !== null && vote.confirmed_at !== undefined).length;
-        console.log(`[checkAndUpdateBetStatus] Retry ${retry + 1}/8: Confirmed votes: ${retryConfirmedCount}/${retryVotes.length}, All confirmed: ${allConfirmed}`);
+        console.log(`[checkAndUpdateBetStatus] Retry ${retry + 1}/${maxRetries}: Confirmed votes: ${retryConfirmedCount}/${retryVotes.length}, All confirmed: ${allConfirmed}`);
         
         if (allConfirmed) {
           console.log(`[checkAndUpdateBetStatus] All votes now confirmed on retry ${retry + 1}, proceeding with completion`);
@@ -493,11 +496,12 @@ async function checkAndUpdateBetStatus(betId: string) {
           break; // Exit retry loop and proceed with completion
         }
       } else {
-        console.log(`[checkAndUpdateBetStatus] Retry ${retry + 1}/8: Error or wrong vote count`, { retryError, retryVotesCount: retryVotes?.length, totalParticipants });
+        console.log(`[checkAndUpdateBetStatus] Retry ${retry + 1}/${maxRetries}: Error or wrong vote count`, { retryError, retryVotesCount: retryVotes?.length, totalParticipants });
       }
     }
     
-    // Final check after retries
+    // Final check after retries - if still not all confirmed, return early
+    // But only if deadline hasn't passed (deadline handling comes after this)
     if (!allConfirmed && !deadlinePassed) {
       console.log("[checkAndUpdateBetStatus] Still not all votes confirmed after retries, returning early");
       return;
@@ -546,16 +550,39 @@ async function checkAndUpdateBetStatus(betId: string) {
   // Check if someone has 100% of votes (unanimous winner)
   const hasUnanimousWinner = winnerUserId && maxVotes === totalParticipants;
 
+  // Double-check that bet is still not completed (race condition protection)
+  const { data: recheckBet } = await supabase
+    .from("bets")
+    .select("status")
+    .eq("id", betId)
+    .single();
+  
+  if (recheckBet?.status === "completed") {
+    console.log("[checkAndUpdateBetStatus] Bet was already completed by another process, skipping");
+    return;
+  }
+  
   console.log(`[checkAndUpdateBetStatus] Setting bet ${betId} status to completed`);
   
   // Update bet status to completed FIRST
   const { error: updateError } = await supabase
     .from("bets")
     .update({ status: "completed" })
-    .eq("id", betId);
+    .eq("id", betId)
+    .eq("status", "open"); // Only update if still open (additional race condition protection)
 
   if (updateError) {
     console.error("[checkAndUpdateBetStatus] Failed to update bet status:", updateError);
+    // Check if it was because status was already changed
+    const { data: statusCheck } = await supabase
+      .from("bets")
+      .select("status")
+      .eq("id", betId)
+      .single();
+    if (statusCheck?.status === "completed") {
+      console.log("[checkAndUpdateBetStatus] Bet was completed by another process, that's okay");
+      return;
+    }
     return;
   }
 
@@ -564,18 +591,92 @@ async function checkAndUpdateBetStatus(betId: string) {
   // Delay to ensure status update is committed to database
   await new Promise(resolve => setTimeout(resolve, 500));
 
+  // Final check: Verify bet is actually completed (prevent duplicate activity logging)
+  const { data: finalBetCheck } = await supabase
+    .from("bets")
+    .select("status")
+    .eq("id", betId)
+    .single();
+  
+  if (finalBetCheck?.status !== "completed") {
+    console.log("[checkAndUpdateBetStatus] Bet status not completed in final check, skipping activity logging");
+    return;
+  }
+
+  // Check if activities for this bet completion have already been logged
+  // This prevents duplicate activity entries if the function runs multiple times
+  const { data: existingActivities } = await supabase
+    .from("activities")
+    .select("id")
+    .eq("related_bet_id", betId)
+    .in("activity_type", ["bet_won", "bet_tied"])
+    .limit(1);
+  
+  if (existingActivities && existingActivities.length > 0) {
+    console.log("[checkAndUpdateBetStatus] Activities for bet completion already exist, skipping duplicate logging");
+    return;
+  }
+
+  // Get bet title for activity messages
+  const { data: betInfo } = await supabase
+    .from("bets")
+    .select("title, stake_amount")
+    .eq("id", betId)
+    .single();
+
+  const betTitle = betInfo?.title || "a bet";
+
   // If we have a unanimous winner, distribute points to winner
   if (hasUnanimousWinner && winnerUserId) {
     // Distribute points to winner
     const distributeResult = await distributePointsToWinner(betId, winnerUserId);
     if (!distributeResult.success) {
       console.error("Failed to distribute points:", distributeResult.error);
+    } else {
+      // Log activity for winner
+      await logActivity(
+        winnerUserId,
+        "bet_won",
+        `You won "${betTitle}"`,
+        betId,
+        undefined,
+        { stake_amount: betInfo?.stake_amount }
+      );
+
+      // Check for newly unlocked achievements (win could unlock achievements)
+      const { checkAndLogNewAchievements } = await import("./achievementActivities");
+      await checkAndLogNewAchievements(winnerUserId);
+
+      // Log activity for all participants (losers)
+      const loserIds = participants
+        .map((p: any) => p.user_id)
+        .filter((id: string) => id !== winnerUserId);
+      
+      for (const loserId of loserIds) {
+        await logActivity(
+          loserId,
+          "bet_tied", // Use tied type for "you lost" (could be "bet_lost" but we use tied)
+          `"${betTitle}" ended - you didn't win`,
+          betId,
+          winnerUserId
+        );
+      }
     }
   } else {
     // No unanimous winner = tie/draw - refund points to all participants
     const refundResult = await refundPointsToAllParticipants(betId);
     if (!refundResult.success) {
       console.error("Failed to refund points:", refundResult.error);
+    } else {
+      // Log activity for all participants (tie)
+      for (const participant of participants) {
+        await logActivity(
+          participant.user_id,
+          "bet_tied",
+          `"${betTitle}" ended in a tie - points refunded`,
+          betId
+        );
+      }
     }
   }
 }

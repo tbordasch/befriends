@@ -137,26 +137,27 @@ export function VotingSection({
     setVoting(votedForUserId);
     setError("");
 
+    // Optimistic UI update - update state immediately for instant feedback
+    const previousVote = userVote;
+    const newVote = userVote === votedForUserId ? null : votedForUserId;
+    setUserVote(newVote);
+
     try {
       const result = await toggleVote(betId, userId, votedForUserId);
       if (!result.success) {
+        // Revert optimistic update on error
+        setUserVote(previousVote);
         setError(result.error || "Failed to toggle vote");
         setVoting(null);
         return;
       }
 
-      // Toggle local state
-      if (userVote === votedForUserId) {
-        setUserVote(null);
-      } else {
-        setUserVote(votedForUserId);
-      }
-
-      // Reload votes to update the UI
-      await loadVotes();
-      // Refresh the page to ensure consistency (especially if bet was completed)
-      router.refresh();
+      // Reload votes in the background to sync with server (non-blocking)
+      // Don't await - let it happen async while UI is already updated
+      loadVotes().catch(err => console.error("Error reloading votes:", err));
     } catch (err: any) {
+      // Revert optimistic update on error
+      setUserVote(previousVote);
       console.error("Error in handleToggleVote:", err);
       setError(err.message || "An unexpected error occurred");
     } finally {
@@ -377,14 +378,20 @@ export function VotingSection({
                   return;
                 }
                 
-                // Reload votes first to get the latest state (including confirmed_at)
+                // Immediately set userVoteConfirmed to true to update the UI
+                // This prevents the button from showing "Confirming..." forever
+                console.log("[VotingSection] Setting userVoteConfirmed to true immediately");
+                setUserVoteConfirmed(true);
+                
+                // Reload votes to get the latest state (including confirmed_at)
+                // This will also ensure userVoteConfirmed is properly set
                 console.log("[VotingSection] Reloading votes after confirmation...");
+                // Small delay to ensure DB commit, then reload
+                await new Promise(resolve => setTimeout(resolve, 400));
                 await loadVotes();
                 
-                // Set confirming to false after loadVotes completes
+                console.log("[VotingSection] Vote confirmed successfully, setting confirming to false");
                 setConfirming(false);
-                
-                console.log("[VotingSection] Vote confirmed successfully");
                 
                 // Note: The ProcessingResults component will handle reloading when bet is completed
               } catch (err: any) {

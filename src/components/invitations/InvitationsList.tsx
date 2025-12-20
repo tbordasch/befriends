@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getPendingInvitations } from "@/lib/actions/invitations";
-import { InvitationCard } from "./InvitationCard";
+import { BetInvitationCard } from "./BetInvitationCard";
 import { Card, CardContent } from "@/components/ui/card";
 
 export function InvitationsList({ userId }: { userId: string }) {
@@ -50,9 +50,9 @@ export function InvitationsList({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {invitations.map((invitation) => (
-        <InvitationCard
+        <BetInvitationCard
           key={invitation.id}
           invitation={invitation}
           userId={userId}

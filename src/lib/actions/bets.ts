@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { deductPoints, refundPoints } from "./points";
+import { logActivity } from "./activities";
 
 /**
  * Join a bet and deduct points
@@ -84,9 +85,10 @@ export async function deleteBet(
   const supabase = await createClient();
 
   // Verify user is the creator and bet is not completed
+  // Get bet title before deletion for activity logging
   const { data: bet, error: fetchError } = await supabase
     .from("bets")
-    .select("creator_id, stake_amount, status")
+    .select("creator_id, stake_amount, status, title")
     .eq("id", betId)
     .single();
 
@@ -101,6 +103,8 @@ export async function deleteBet(
   if (bet.status === "completed") {
     return { success: false, error: "Cannot delete a completed bet" };
   }
+
+  const betTitle = bet.title || "a bet";
 
   // Get all accepted participants to refund their points
   const { data: participants, error: participantsError } = await supabase
@@ -140,6 +144,14 @@ export async function deleteBet(
       }
     }
   }
+
+  // Log activity for bet deletion (BEFORE deletion so bet_id still exists)
+  await logActivity(
+    userId,
+    "bet_deleted",
+    `You deleted "${betTitle}"`,
+    betId
+  );
 
   // Delete the bet (cascade will delete participants, votes, proofs)
   // This happens AFTER points are refunded

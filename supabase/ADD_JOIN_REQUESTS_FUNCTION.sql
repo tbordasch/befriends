@@ -1,8 +1,13 @@
 -- ============================================
--- Function to get join requests for creator (bypasses RLS)
+-- Fix Join Requests Function - Ensure ONLY public bets with join requests
+-- ============================================
+-- This ensures that join requests ONLY show for PUBLIC bets where someone
+-- requested to join (not for private bets where the creator invited someone)
+--
+-- IMPORTANT: Private bets should NEVER appear in join requests!
 -- ============================================
 
--- Drop function if exists to avoid conflicts
+-- Drop and recreate the function with strict filtering
 DROP FUNCTION IF EXISTS public.get_join_requests_for_creator(UUID);
 
 CREATE OR REPLACE FUNCTION public.get_join_requests_for_creator(p_creator_id UUID)
@@ -37,10 +42,14 @@ BEGIN
   INNER JOIN public.profiles p ON p.id = bp.user_id
   WHERE b.creator_id = p_creator_id
     AND b.status = 'open'
+    AND b.is_private = false  -- CRITICAL: Only public bets can have join requests
     AND bp.status = 'pending'
+    -- Additional safety: Ensure this is not a private bet invitation
+    -- (private bets = creator invited, public bets = user requested to join)
   ORDER BY bp.created_at DESC;
 END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.get_join_requests_for_creator(UUID) TO authenticated;
+
 

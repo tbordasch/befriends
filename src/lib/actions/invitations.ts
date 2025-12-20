@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logActivity } from "./activities";
 
 /**
  * Get pending bet invitations for a user
@@ -137,9 +138,15 @@ export async function getLatestPendingInvitation(userId: string) {
   // - User is NOT the creator (user was invited, not requesting)
   // - Bet is private (public bets = user requested to join, not invited)
   // If user is the creator or bet is public, this is a join request, not an invitation
-  if (bet.creator_id === userId || !bet.is_private) {
-    return { success: false, invitation: null };
+  if (bet.creator_id === userId) {
+    return { success: false, invitation: null }; // User is creator = join request from others
   }
+  
+  if (!bet.is_private) {
+    return { success: false, invitation: null }; // Public bet = user requested to join, not invited
+  }
+  
+  // This is a valid invitation: private bet where user is NOT the creator
 
   return {
     success: true,
@@ -221,6 +228,44 @@ export async function acceptInvitation(
     return { success: false, error: updateError.message };
   }
 
+  // Get bet and creator info for activity logging
+  const { data: betData } = await supabase
+    .from("bets")
+    .select("id, title, creator_id")
+    .eq("id", invitation.bet_id)
+    .single();
+
+  if (betData) {
+    const betTitle = betData.title || "a bet";
+
+    // Get user profiles for better activity messages
+    const { data: userProfile } = await supabase
+      .from("profiles")
+      .select("name, username")
+      .eq("id", userId)
+      .single();
+
+    const userName = userProfile?.name || userProfile?.username || "Someone";
+
+    // Log for user
+    await logActivity(
+      userId,
+      "bet_invitation_accepted",
+      `You accepted the invitation to "${betTitle}"`,
+      betData.id,
+      betData.creator_id
+    );
+
+    // Log for creator
+    await logActivity(
+      betData.creator_id,
+      "bet_invitation_accepted",
+      `${userName} accepted your invitation to "${betTitle}"`,
+      betData.id,
+      userId
+    );
+  }
+
   return { success: true };
 }
 
@@ -243,6 +288,54 @@ export async function declineInvitation(
 
   if (error) {
     return { success: false, error: error.message };
+  }
+
+  // Get invitation details for activity logging
+  const { data: invitationData } = await supabase
+    .from("bet_participants")
+    .select(
+      `
+      bet_id,
+      bet:bets!inner(
+        id,
+        title,
+        creator_id
+      )
+    `
+    )
+    .eq("id", invitationId)
+    .single();
+
+  if (invitationData?.bet) {
+    const betTitle = (invitationData.bet as any).title || "a bet";
+    const creatorId = (invitationData.bet as any).creator_id;
+
+    // Get user profile for better activity message
+    const { data: userProfile } = await supabase
+      .from("profiles")
+      .select("name, username")
+      .eq("id", userId)
+      .single();
+
+    const userName = userProfile?.name || userProfile?.username || "Someone";
+
+    // Log for user
+    await logActivity(
+      userId,
+      "bet_invitation_declined",
+      `You declined the invitation to "${betTitle}"`,
+      (invitationData.bet as any).id,
+      creatorId
+    );
+
+    // Log for creator
+    await logActivity(
+      creatorId,
+      "bet_invitation_declined",
+      `${userName} declined your invitation to "${betTitle}"`,
+      (invitationData.bet as any).id,
+      userId
+    );
   }
 
   return { success: true };
