@@ -51,14 +51,20 @@ export async function getUserBettingStats(userId: string): Promise<BettingStats>
     };
   }
 
-  // Filter only completed bets
-  const completedBets = participants.filter(
-    (p: any) => p.bet?.status === "completed"
-  );
+  // Filter only completed bets and add type assertion for bet
+  const completedBets = participants
+    .map((p: any) => ({
+      ...p,
+      bet: (p.bet as any) as { id: string; stake_amount: number; status: string; created_at: string } | null
+    }))
+    .filter((p: any) => p.bet?.status === "completed");
 
   if (completedBets.length === 0) {
     // Calculate average bet size from all bets (not just completed)
-    const allBetSizes = participants.map((p: any) => p.bet?.stake_amount || 0);
+    const allBetSizes = participants.map((p: any) => {
+      const bet = (p.bet as any) as { stake_amount: number } | null;
+      return bet?.stake_amount || 0;
+    });
     const avgBetSize = allBetSizes.length > 0
       ? allBetSizes.reduce((sum, size) => sum + size, 0) / allBetSizes.length
       : 0;
@@ -142,7 +148,10 @@ export async function getUserBettingStats(userId: string): Promise<BettingStats>
   }
 
   // Calculate average bet size from all bets
-  const allBetSizes = participants.map((p: any) => p.bet?.stake_amount || 0);
+  const allBetSizes = participants.map((p: any) => {
+    const bet = (p.bet as any) as { stake_amount: number } | null;
+    return bet?.stake_amount || 0;
+  });
   const averageBetSize = allBetSizes.length > 0
     ? allBetSizes.reduce((sum, size) => sum + size, 0) / allBetSizes.length
     : 0;
