@@ -183,12 +183,15 @@ export async function acceptJoinRequest(
     return { success: false, error: "Join request not found" };
   }
 
+  // Type assertion: bet is a single object, not an array (due to !inner and .single())
+  const bet = (participant as any).bet as { id: string; creator_id: string; stake_amount: number; status: string };
+
   // Verify creator owns this bet
-  if (participant.bet.creator_id !== creatorId) {
+  if (bet.creator_id !== creatorId) {
     return { success: false, error: "You are not the creator of this bet" };
   }
 
-  if (participant.bet.status !== "open") {
+  if (bet.status !== "open") {
     return { success: false, error: "Bet is not open" };
   }
 
@@ -197,7 +200,7 @@ export async function acceptJoinRequest(
     "atomic_deduct_points",
     {
       p_user_id: participant.user_id,
-      p_amount: participant.bet.stake_amount,
+      p_amount: bet.stake_amount,
     }
   );
 
@@ -224,7 +227,7 @@ export async function acceptJoinRequest(
     // Refund points if update fails
     await supabase.rpc("atomic_add_points", {
       p_user_id: participant.user_id,
-      p_amount: participant.bet.stake_amount,
+      p_amount: bet.stake_amount,
     });
     return { success: false, error: updateError.message };
   }
@@ -235,7 +238,7 @@ export async function acceptJoinRequest(
     // Refund points if update failed
     await supabase.rpc("atomic_add_points", {
       p_user_id: participant.user_id,
-      p_amount: participant.bet.stake_amount,
+      p_amount: bet.stake_amount,
     });
     return { success: false, error: errorMsg };
   }
@@ -244,7 +247,7 @@ export async function acceptJoinRequest(
   const { data: betData } = await supabase
     .from("bets")
     .select("title")
-    .eq("id", participant.bet.id)
+    .eq("id", bet.id)
     .single();
 
   const { data: requesterProfile } = await supabase
@@ -268,7 +271,7 @@ export async function acceptJoinRequest(
     participant.user_id,
     "join_request_accepted",
     `Your join request for "${betTitle}" was accepted`,
-    participant.bet.id,
+    bet.id,
     creatorId
   );
 
@@ -277,7 +280,7 @@ export async function acceptJoinRequest(
     creatorId,
     "join_request_accepted",
     `You accepted ${requesterName}'s join request for "${betTitle}"`,
-    participant.bet.id,
+    bet.id,
     participant.user_id
   );
 
@@ -314,8 +317,11 @@ export async function declineJoinRequest(
     return { success: false, error: "Join request not found" };
   }
 
+  // Type assertion: bet is a single object, not an array (due to !inner and .single())
+  const bet = (participant as any).bet as { creator_id: string };
+
   // Verify creator owns this bet
-  if (participant.bet.creator_id !== creatorId) {
+  if (bet.creator_id !== creatorId) {
     return { success: false, error: "You are not the creator of this bet" };
   }
 
