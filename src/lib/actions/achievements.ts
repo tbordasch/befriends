@@ -114,7 +114,7 @@ export async function getUserAchievements(userId: string): Promise<Achievement[]
   // Social Butterfly Achievement (5+ friends)
   const { data: friends } = await supabase
     .from("friends")
-    .select("id, created_at")
+    .select("id, user_id, friend_id, created_at")
     .or(`user_id.eq.${userId},friend_id.eq.${userId}`)
     .order("created_at", { ascending: true });
 
